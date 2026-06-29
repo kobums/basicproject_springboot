@@ -1,4 +1,4 @@
-# basicproject_api
+# basicproject_springboot
 
 Spring Boot 기반 게시판 REST API. JWT 인증, 회원/게시글 CRUD, 이미지 업로드를 제공한다.
 
