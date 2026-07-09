@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 8081 # 8080 은 다른 프로젝트 서버가 사용 중이라 8081 사용
 
 spring:
   application:
