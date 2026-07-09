@@ -59,7 +59,9 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173"));
+        // dev 에서 5173 이 다른 프로젝트에 점유되면 vite 가 5174/5175… 로 밀리므로
+        // localhost 의 모든 포트를 허용한다 (개발용 — 운영 배포 시 실제 도메인으로 제한할 것).
+        config.setAllowedOriginPatterns(List.of("http://localhost:*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
