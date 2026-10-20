@@ -20,6 +20,11 @@ public class JwtProvider {
     public JwtProvider(
             @Value("${app.jwt.secret}") String secret,
             @Value("${app.jwt.expiration-ms}") long expirationMs) {
+        // 공개 저장소에 기본 비밀키를 두지 않는다. 미설정/짧은 키면 기동 시 명확히 실패시킨다.
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                    "app.jwt.secret 이 설정되지 않았거나 32바이트 미만입니다. 환경변수 JWT_SECRET 또는 application-local.yml 로 설정하세요.");
+        }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
     }
