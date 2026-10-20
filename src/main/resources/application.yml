@@ -29,7 +29,7 @@ spring:
 app:
   upload-dir: uploads
   jwt:
-    # HS256 서명용 비밀키. 최소 32바이트 이상이어야 한다. 실서비스에서는 환경변수(JWT_SECRET)로 주입할 것.
-    secret: ${JWT_SECRET:basicproject-dev-secret-key-please-change-in-production-0123456789}
+    # HS256 서명용 비밀키(최소 32바이트). 기본값 없음 — 환경변수 JWT_SECRET 또는 application-local.yml 로 반드시 주입한다.
+    secret: ${JWT_SECRET:}
     # 토큰 만료 시간 (밀리초). 기본 1일.
     expiration-ms: 86400000
