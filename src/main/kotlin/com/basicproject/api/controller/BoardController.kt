@@ -38,6 +38,9 @@ class BoardController(
         // batch 요청 한 번에 받는 최대 행 수 (넘으면 400, Go / Rust 백엔드와 같다).
         const val MAX_BATCH = 1000
 
+        // 문자열 필터의 부분 일치 패턴: ! % _ 를 ! 로 escape 하고 양쪽에 % 를 붙인다 (like ... escape '!', Go / Rust 와 같다).
+        private fun likePattern(_v: String): String = "%" + _v.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+
         // 정렬에 쓸 수 있는 이름(소문자: 프로퍼티 / 요청 필드 / 컬럼 이름) → 엔티티 프로퍼티
         private val SORT_FIELDS = mapOf(
             "id" to "id",
@@ -48,8 +51,9 @@ class BoardController(
             "b_content" to "content",
             "img" to "img",
             "b_img" to "img",
-            "user" to "user",
-            "b_user" to "user",
+            "userid" to "userId",
+            "user" to "userId",
+            "b_user" to "userId",
             "createddate" to "createddate",
             "b_createddate" to "createddate",
         )
@@ -71,18 +75,8 @@ class BoardController(
     // 소유권 검사: 행이 현재 세션 사용자 것인지 확인한다 (남의 행 조회/수정/삭제 방지).
     private fun isOwned(_entity: Board): Boolean {
         val _s0 = _sessionProvider.currentValue("id") ?: return false
-        if (_entity.user != _s0) return false
+        if (_entity.userId != _s0) return false
         return true
-    }
-
-    // 현재 세션 사용자 소유 행만 (목록 / 개수 / 검색 조건)
-    private fun ownerSpec(): Specification<Board> {
-        return Specification { _root, _, _cb ->
-            val _predicates = mutableListOf<Predicate>()
-            val _s0 = _sessionProvider.currentValue("id")
-            _predicates.add(if (_s0 == null) _cb.disjunction() else _cb.equal(_root.get<Any>("user"), _s0))
-            _cb.and(*_predicates.toTypedArray())
-        }
     }
 
     // 수정/삭제할 수 있는 행인지 (소유권).
@@ -112,15 +106,15 @@ class BoardController(
     ): Specification<Board> {
         val _filter = Specification<Board> { _root, _, _cb ->
             val _predicates = mutableListOf<Predicate>()
-            if (title != null) _predicates.add(_cb.equal(_root.get<Any>("title"), title))
-            if (content != null) _predicates.add(_cb.equal(_root.get<Any>("content"), content))
-            if (img != null) _predicates.add(_cb.equal(_root.get<Any>("img"), img))
-            if (user != null) _predicates.add(_cb.equal(_root.get<Any>("user"), user))
+            if (title != null) _predicates.add(_cb.like(_root.get<String>("title"), likePattern(title), '!'))
+            if (content != null) _predicates.add(_cb.like(_root.get<String>("content"), likePattern(content), '!'))
+            if (img != null) _predicates.add(_cb.like(_root.get<String>("img"), likePattern(img), '!'))
+            if (user != null) _predicates.add(_cb.equal(_root.get<Any>("userId"), user))
             if (createddate_start != null) _predicates.add(_cb.greaterThanOrEqualTo(_root.get<java.time.LocalDateTime>("createddate"), createddate_start))
             if (createddate_end != null) _predicates.add(_cb.lessThanOrEqualTo(_root.get<java.time.LocalDateTime>("createddate"), createddate_end))
             _cb.and(*_predicates.toTypedArray())
         }
-        return _filter.and(ownerSpec())
+        return _filter
     }
 
     // 정렬: "createddate desc, name" 또는 "createddate,desc". 모르는 이름/방향이면 null (400).
@@ -166,7 +160,7 @@ class BoardController(
         @RequestParam("startcreateddate", required = false) createddate_start: String?,
         @RequestParam("endcreateddate", required = false) createddate_end: String?,
     ): ResponseEntity<Map<String, Any>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         if ((_page ?: 0) < 0 || (_pagesize ?: 0) < 0) return ResponseEntity.badRequest().build()
         val _order = parseSort(_sort ?: _orderby) ?: return ResponseEntity.badRequest().build()
         val _paged = (_page ?: 0) > 0 && (_pagesize ?: 0) > 0
@@ -202,8 +196,8 @@ class BoardController(
 
     @GetMapping("/{id}")
     fun getBoard(@PathVariable("id") _id: Long): ResponseEntity<BoardResponse> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
-        val _res = _service.findById(_id)?.takeIf { isOwned(it) }
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        val _res = _service.findById(_id)
         return if (_res != null) {
             ResponseEntity.ok(toResponse(_res))
         } else {
@@ -212,53 +206,53 @@ class BoardController(
     }
 
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 소유권 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
     @GetMapping("/search/title")
     fun getBoardByTitle(@RequestParam("title") _value: String): ResponseEntity<List<BoardResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
         val _spec = Specification<Board> { _root, _, _cb -> _cb.equal(_root.get<Any>("title"), _v) }
-        val _res = _service.findAll(_spec.and(ownerSpec()))
+        val _res = _service.findAll(_spec)
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 소유권 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
     @GetMapping("/search/content")
     fun getBoardByContent(@RequestParam("content") _value: String): ResponseEntity<List<BoardResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
         val _spec = Specification<Board> { _root, _, _cb -> _cb.equal(_root.get<Any>("content"), _v) }
-        val _res = _service.findAll(_spec.and(ownerSpec()))
+        val _res = _service.findAll(_spec)
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 소유권 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
     @GetMapping("/search/img")
     fun getBoardByImg(@RequestParam("img") _value: String): ResponseEntity<List<BoardResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
         val _spec = Specification<Board> { _root, _, _cb -> _cb.equal(_root.get<Any>("img"), _v) }
-        val _res = _service.findAll(_spec.and(ownerSpec()))
+        val _res = _service.findAll(_spec)
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 소유권 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
     @GetMapping("/search/user")
     fun getBoardByUser(@RequestParam("user") _value: Long): ResponseEntity<List<BoardResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
-        val _spec = Specification<Board> { _root, _, _cb -> _cb.equal(_root.get<Any>("user"), _v) }
-        val _res = _service.findAll(_spec.and(ownerSpec()))
+        val _spec = Specification<Board> { _root, _, _cb -> _cb.equal(_root.get<Any>("userId"), _v) }
+        val _res = _service.findAll(_spec)
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 소유권 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
     @GetMapping("/search/createddate")
     fun getBoardByCreateddate(@RequestParam("createddate") _value: String): ResponseEntity<List<BoardResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = DateParams.dateTimeParam(_value, "createddate") ?: return ResponseEntity.badRequest().build()
         val _spec = Specification<Board> { _root, _, _cb -> _cb.equal(_root.get<Any>("createddate"), _v) }
-        val _res = _service.findAll(_spec.and(ownerSpec()))
+        val _res = _service.findAll(_spec)
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
@@ -272,7 +266,7 @@ class BoardController(
         @RequestParam("startcreateddate", required = false) createddate_start: String?,
         @RequestParam("endcreateddate", required = false) createddate_end: String?,
     ): ResponseEntity<Map<String, Long>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _spec = buildSpec(
             title,
             content,

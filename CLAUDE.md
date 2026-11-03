@@ -9,6 +9,8 @@ upload and security. All table CRUD (entity / repository / service / controller)
 
 - Spring Boot 4.1.2, Kotlin 2.3.21 (Boot-managed), Java 21 toolchain, Gradle 9.8.2 wrapper, JJWT 0.13, MariaDB (H2 for tests)
 - Base package `com.basicproject.api` (`src/main/kotlin/com/basicproject/api`)
+- This template is what `buildtool-model init` (workspace mode) clones for a Spring backend. Keep `model.json`, `db/schema.sql`,
+  `docker-compose.yml` (except the extra `api` profile) and `.env.example` in sync with gomachine `bootstrap/`.
 
 ## Commands
 
@@ -36,13 +38,23 @@ docker compose up -d db
 - Unified JWT shared with basicproject_go / Rust: HS256 only, key = `JWT_SECRET` UTF-8 bytes (>= 32 bytes, startup fails otherwise),
   claims `{sub: "<id>", id, email, level, iat, exp}` in integer seconds, 24h. Parsing: `id` else numeric `sub`, `level` optional.
 - `JwtAuthenticationFilter` sets `AuthPrincipal(id, email, level)`; any invalid token = anonymous (never 500).
-- `SecurityConfig`: stateless; `/api/auth/login|signup` public, `/api/auth/**` and `/api/upload` authenticated, other `/api/**`
+- Auth API follows the gomachine README "auth API contract" exactly: signup 201 / 400 / 409, login 200 / 401, me 200 / 401,
+  body `{token, tokenType: "Bearer", expiresInMs, user}`, `user = {id, email, name, level, createddate}`, errors
+  `{status, message, fieldErrors?}` (`common/ErrorResponse`, `ApiException(status)`). Upload `POST /api/upload/index`
+  (alias `/api/upload`), multipart field `upload` → `{filename, url}`, served from `/uploads/**`.
+- `SecurityConfig`: stateless; `/api/auth/login|signup` public, `/api/auth/**` and `/api/upload/**` authenticated, other `/api/**`
   permitted at the filter level because generated controllers return 401 themselves via `SessionProvider` (generated `POST /api/user` is open, like Go).
 - One `PasswordEncoder` (bcrypt) bean is shared by `AuthService` and the generated `UserService`.
-- Signup (`POST /api/auth/signup`) sets level 1; generated `POST /api/user` writes level 0 (protected column).
+- Signup (`POST /api/auth/signup`) sets level 1; generated `POST /api/user` also writes 1 (protected column = DB default).
+- `model.json`: `user` protects `level`; generated User reads are self-only unless `currentValue("level") >= adminLevel` (3).
+  `board`: `session` owner = `user`, `read: "login"` (any logged-in user reads, only the owner updates/deletes: 404 / batch 403),
+  `join` user (`extra.user` in responses). String list filters are partial match (`like '%v%' escape '!'`).
+- Regenerating twice must produce no diff; commit generated files together with `model.json` / schema changes.
 
 ## Tests
 
-`src/test/kotlin`: `BasicprojectApiApplicationTests` (context) and `ApiFlowTests` (MockMvc: signup/login/token format, generated board
-with session owner, 401 on missing/malformed/foreign/expired/HS512 tokens, Go-format token accepted, upload, CORS). Profile `test`
+`src/test/kotlin`: `BasicprojectApiApplicationTests` (context) and `ApiFlowTests` (MockMvc: auth contract statuses/bodies, token format,
+board owner + read "login" + 404/403 for others + anonymous 401, partial-match filter with literal `%`/`_`, User self-read vs admin,
+generated `POST /api/user` level 1, 401 on missing/malformed/foreign/expired/HS512 tokens, Go-format token, upload, CORS).
+Board is readable by every test user, so assertions filter by `user=<id>` instead of counting all rows. Profile `test`
 (`src/test/resources/application-test.yml`).

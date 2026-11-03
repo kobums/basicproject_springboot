@@ -49,7 +49,7 @@ class UserService(
             email = request.email,
             passwd = if (request.passwd.isBlank()) "" else passwordEncoder.encode(request.passwd)!!,
             name = request.name,
-            level = 0,
+            level = 1,
             createddate = DateParams.now(),
         )
     }

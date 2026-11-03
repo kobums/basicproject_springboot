@@ -4,6 +4,7 @@ package com.basicproject.api.repository
 import com.basicproject.api.entity.Board
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
+import org.springframework.data.jpa.repository.EntityGraph
 import org.springframework.data.jpa.domain.Specification
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor
@@ -13,11 +14,23 @@ import org.springframework.stereotype.Repository
 // (컬럼 이름에 따라 Spring Data 가 시작할 때 해석하지 못할 수 있다).
 @Repository
 interface BoardRepository : JpaRepository<Board, Long>, JpaSpecificationExecutor<Board> {
+    @EntityGraph(attributePaths = [
+        "user"
+    ])
     override fun findAll(pageable: Pageable): Page<Board>
 
+    @EntityGraph(attributePaths = [
+        "user"
+    ])
     override fun findAll(spec: Specification<Board>, pageable: Pageable): Page<Board>
 
+    @EntityGraph(attributePaths = [
+        "user"
+    ])
     override fun findAll(spec: Specification<Board>): List<Board>
 
+    @EntityGraph(attributePaths = [
+        "user"
+    ])
     override fun findById(id: Long): java.util.Optional<Board>
 }

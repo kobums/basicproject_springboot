@@ -23,6 +23,10 @@ class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "validation failed", fields)
     }
 
+    // 401 (로그인 실패), 409 (이미 있는 이메일) 등 상태 코드를 정한 예외
+    @ExceptionHandler(ApiException::class)
+    fun handleApi(e: ApiException) = build(e.status, e.message ?: e.status.reasonPhrase)
+
     @ExceptionHandler(HttpMessageNotReadableException::class)
     fun handleUnreadable(e: HttpMessageNotReadableException) = build(HttpStatus.BAD_REQUEST, "잘못된 요청입니다.")
 
@@ -32,9 +36,9 @@ class ApiExceptionHandler {
     @ExceptionHandler(NoSuchElementException::class)
     fun handleNotFound(e: NoSuchElementException) = build(HttpStatus.NOT_FOUND, e.message ?: "not found")
 
-    // 동시에 같은 이메일로 가입하는 경우 등 DB 제약 조건 위반
+    // 동시에 같은 이메일로 가입하는 경우 등 DB 제약 조건 위반 (409)
     @ExceptionHandler(DataIntegrityViolationException::class)
-    fun handleConstraint(e: DataIntegrityViolationException) = build(HttpStatus.CONFLICT, "constraint violation")
+    fun handleConstraint(e: DataIntegrityViolationException) = build(HttpStatus.CONFLICT, "이미 사용 중인 값입니다.")
 
     @ExceptionHandler(MaxUploadSizeExceededException::class)
     fun handleMaxUpload(e: MaxUploadSizeExceededException) = build(HttpStatus.PAYLOAD_TOO_LARGE, "업로드 용량이 너무 큽니다.")
@@ -42,6 +46,6 @@ class ApiExceptionHandler {
     @ExceptionHandler(MultipartException::class)
     fun handleMultipart(e: MultipartException) = build(HttpStatus.BAD_REQUEST, "multipart/form-data 요청이 필요합니다.")
 
-    private fun build(status: HttpStatus, message: String, fields: Map<String, String> = emptyMap()) =
+    private fun build(status: HttpStatus, message: String, fields: Map<String, String>? = null) =
         ResponseEntity.status(status).body(ErrorResponse.of(status, message, fields))
 }

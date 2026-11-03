@@ -6,6 +6,7 @@ import com.basicproject.api.entity.BoardCreateRequest
 import com.basicproject.api.entity.BoardUpdateRequest
 import com.basicproject.api.entity.BoardPatchRequest
 import com.basicproject.api.repository.BoardRepository
+import jakarta.persistence.EntityManager
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.domain.Specification
@@ -16,7 +17,8 @@ import com.basicproject.api.support.DateParams
 @Service
 @Transactional
 class BoardService(
-    private val boardRepository: BoardRepository
+    private val boardRepository: BoardRepository,
+    private val entityManager: EntityManager
 ) {
 
     // 조건(Specification)과 페이지/정렬로 조회한다. 조건은 DB 쿼리로 실행된다.
@@ -42,25 +44,32 @@ class BoardService(
     }
 
 
+    // 저장한 엔티티는 조인(@ManyToOne) 필드가 비어 있으므로, DB 에 반영한 뒤 조인까지 다시 읽는다.
+    private fun reload(saved: Board): Board {
+        boardRepository.flush()
+        entityManager.detach(saved)
+        return boardRepository.findById(saved.id).orElse(saved)
+    }
+
     private fun toEntity(request: BoardCreateRequest): Board {
         return Board(
             title = request.title,
             content = request.content,
             img = request.img,
-            user = request.user,
+            userId = request.user,
             createddate = DateParams.now(),
         )
     }
 
     fun create(request: BoardCreateRequest): Board {
         val entity = toEntity(request)
-        return boardRepository.save(entity)
+        return reload(boardRepository.save(entity))
     }
 
     fun createBatch(requests: List<BoardCreateRequest>): List<Board> {
         val entities = requests.map { toEntity(it) }
         val saved = boardRepository.saveAll(entities)
-        return saved
+        return saved.map { reload(it) }
     }
 
     // PUT 도 PATCH 와 같이 보낸 필드만 바꾼다.
@@ -96,8 +105,8 @@ class BoardService(
             title = request.title ?: existing.title,
             content = request.content ?: existing.content,
             img = request.img ?: existing.img,
-            user = request.user ?: existing.user,
+            userId = request.user ?: existing.userId,
         )
-        return boardRepository.save(updated)
+        return reload(boardRepository.save(updated))
     }
 }

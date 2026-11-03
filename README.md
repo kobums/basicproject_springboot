@@ -4,6 +4,9 @@ gomachine 용 Spring Boot 시작 프로젝트. 템플릿에는 인증(회원가�
 테이블 CRUD(엔티티 / 리포지토리 / 서비스 / 컨트롤러)는 모두 gomachine 이 `model.json` 과 DB 스키마로 만든다.
 표준 스키마(`user`, `board`)의 생성 코드는 커밋되어 있어서 받자마자 빌드된다.
 
+`buildtool-model init` 의 workspace 모드가 Spring 백엔드를 고르면 이 템플릿을 받아 쓴다. 그래서 `model.json`, `db/schema.sql`,
+`docker-compose.yml`, `.env.example` 은 gomachine `bootstrap/` 표준 자산과 같게 둔다 (docker-compose 의 `api` profile 만 더 있다).
+
 ## 기술 스택
 
 - Spring Boot 4.1.2 (Spring Framework 7, Spring Security 7, Hibernate 7, Jackson 3)
@@ -64,20 +67,29 @@ src/main/kotlin/com/basicproject/api
 
 | Method | Path | 설명 | 로그인 |
 |---|---|---|---|
-| POST | `/api/auth/signup` | 회원가입 (`{email, password, name}`, level 1) 후 토큰 발급, 201 | X |
-| POST | `/api/auth/login` | 로그인 (`{email, password}`) 후 토큰 발급 | X |
-| GET | `/api/auth/me` | 현재 토큰의 사용자 | O |
-| POST | `/api/upload` | 이미지 업로드 (multipart, 필드 이름 = form 값 `name`, 기본 `upload`) | O |
+| POST | `/api/auth/signup` | 회원가입 (`{email, password, name}`, level 1) 후 토큰 발급. 201, 400 (검증), 409 (이미 있는 email) | X |
+| POST | `/api/auth/login` | 로그인 (`{email, password}`) 후 토큰 발급. 200, 401 | X |
+| GET | `/api/auth/me` | 현재 토큰의 사용자. 200 `user`, 401 | O |
+| POST | `/api/upload/index` | 이미지 업로드 (multipart, 파일 필드 `upload`). 200 `{filename, url}`, 400, 401. `/api/upload` 도 같다 | O |
 | GET | `/uploads/{filename}` | 업로드 파일 | X |
 | * | `/api/{table}/...` | gomachine 생성 API | 컨트롤러가 확인 |
 
-- 로그인 / 회원가입 응답: `{"token", "tokenType": "Bearer", "expiresInMs", "user": {id, email, name, level, createddate}}` (Go 템플릿과 같다).
-- 잘못된 이메일 / 비밀번호는 같은 메시지로 400, 이미 있는 이메일은 400, 형식 오류는 400 + `fieldErrors`.
-- 업로드 응답: `{"filename": "20260102/abc....png", "original", "url": "/uploads/20260102/abc....png"}`.
+gomachine README 의 "인증 API 계약" 을 그대로 따른다 (Go / Spring / Rust 템플릿 공통, 프런트는 백엔드를 바꿔도 같은 코드로 로그인한다).
+
+- 로그인 / 회원가입 응답: `{"token", "tokenType": "Bearer", "expiresInMs", "user": {id, email, name, level, createddate}}`.
+  `user` 는 생성된 `UserResponse` 와 같은 JSON (비밀번호 없음, `createddate` 는 `yyyy-MM-dd HH:mm:ss`).
+- 에러 본문: `{"status", "message", "fieldErrors"?}` (`fieldErrors` 는 검증 실패일 때만 `{필드: 메시지}`).
+  없는 이메일 / 틀린 비밀번호는 같은 메시지로 401, 이미 있는 이메일은 409, 형식 오류는 400 + `fieldErrors`.
+- 업로드 응답: `{"filename": "20260102/abc....png", "url": "/uploads/20260102/abc....png"}`.
   jpg / jpeg / png / gif / webp 만 받는다 (확장자 + 파일 시그니처 검사, 5MB). `filename` 을 컬럼(예: `board.img`)에 저장한다.
 - 생성 API: Spring Security 는 `/api/**` 를 막지 않고, 생성 컨트롤러가 `SessionProvider.currentUserId()` 로 직접 401 을 돌려준다.
-  `POST /api/user` (생성 API 의 회원가입) 만 로그인 없이 된다 (Go 와 같다). 이 경로로 만든 회원은 `level` 이 0 이다 (보호 컬럼).
-  `board` 는 `model.json` `session` 설정으로 작성자(`user`)가 로그인 사용자로 정해지고, 목록 / 수정 / 삭제가 본인 글로 제한된다.
+  `POST /api/user` (생성 API 의 회원가입) 만 로그인 없이 된다 (Go 와 같다). `level` 은 보호 컬럼이라 보낸 값 대신 DB 기본값 1 이다.
+  가입은 `/api/auth/signup` 을 쓰는 것이 기본이다 (토큰까지 한 번에).
+- `user` 읽기 (목록 / 개수 / 검색 / 단건): 일반 회원은 본인 행만 (남의 단건은 404), 관리자(토큰 `level` ≥ `model.json` `adminLevel` 3,
+  `SecuritySessionProvider.currentValue("level")`)는 모든 행. 수정 / 삭제는 본인 행만 (남의 행 404, 일괄 삭제 403).
+- `board`: `session` 으로 작성자(`user`)가 로그인 사용자로 정해지고, `read: "login"` 이라 로그인 사용자는 모든 글을 읽는다 (비로그인 401).
+  수정 / 삭제는 작성자만 (남의 글 404, 일괄 삭제 403). `join` 으로 응답의 `extra.user` 에 작성자 정보(비밀번호 없음)가 들어간다.
+- 문자열 필터는 부분 일치다: `GET /api/board?title=ab` → `like '%ab%' escape '!'`. 값의 `%`, `_`, `!` 는 글자 그대로 찾는다.
 - 비밀번호는 bcrypt (`PasswordEncoder` 빈 하나를 인증과 생성된 `UserService` 가 같이 쓴다).
 
 ### 통일 JWT (Go / Spring / Rust 공통)
@@ -115,7 +127,7 @@ Authorization: Bearer <token>
 ## 포트
 
 - Spring 서버 `8081` (basicproject_vue 의 vite 프록시가 8081 로 보낸다).
-- MariaDB `3306` (`DB_PORT`). gomachine 은 아직 3306 으로만 접속한다.
+- MariaDB `3306` (`DB_PORT`). gomachine 생성기도 `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` 를 읽는다.
 
 ## 설정 메모
 
@@ -131,5 +143,7 @@ Authorization: Bearer <token>
 ./gradlew test
 ```
 
-테스트(`src/test/kotlin`): 회원가입 → 로그인 → 토큰 형식, 생성 `POST /api/board` 의 작성자 = 로그인 사용자, 다른 사용자 목록 분리,
-토큰 없음 / 잘못된 토큰 401, Go 형식 토큰 수락, 생성 `POST /api/user` 와 로그인 해시 호환, 업로드, CORS preflight.
+테스트(`src/test/kotlin`, H2): 인증 API 계약 (201 / 200 / 401 / 409 / 400 + `fieldErrors`, 토큰 형식, `user` 모양),
+board 작성자 = 로그인 사용자 / 다른 회원도 읽기 / 남의 글 수정·삭제 404·403 / 비로그인 읽기 401 / `extra.user` 조인,
+문자열 부분 일치 필터와 `%` `_` escape, user 본인 행 읽기 / 관리자(level 3) 전체 읽기, 생성 `POST /api/user` 의 level 1 과 로그인 해시 호환,
+잘못된 토큰 401, Go 형식 토큰 수락, 업로드 (`/api/upload/index`, `{filename, url}`), CORS preflight.

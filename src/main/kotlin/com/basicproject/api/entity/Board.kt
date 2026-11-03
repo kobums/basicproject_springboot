@@ -24,10 +24,14 @@ data class Board(
     @Column(name = "b_img")
     val img: String? = null,
     @Column(name = "b_user")
-    val user: Long = 0L,
+    val userId: Long = 0L,
     @Column(name = "b_createddate")
     val createddate: LocalDateTime = java.time.LocalDateTime.now(),
-) 
+) {
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "b_user", insertable = false, updatable = false)
+    var user: User? = null
+}
 
 // 보호 컬럼(protect)은 요청으로 받지 않는다. id 는 자동 증가 값, createddate 는 서버 시각을 쓴다.
 // 자동 증가가 아닌 기본 키(문자열 키 등)는 반드시 보내야 하고, 이미 있는 키면 409 다.
@@ -61,6 +65,10 @@ data class BoardIdRequest(
     val id: Long,
 )
 
+data class BoardExtraInfo(
+
+    val user: UserResponse? = null,
+)
 
 
 // 날짜는 "yyyy-MM-dd HH:mm:ss" (date 는 yyyy-MM-dd) 문자열, enum 은 코드(Int), null 허용 컬럼은 null 일 수 있다.
@@ -72,21 +80,24 @@ data class BoardResponse(
     val user: Long,
     val createddate: String,
 
-    val extra: kotlin.collections.Map<kotlin.String, kotlin.Any?> = emptyMap()
+    val extra: BoardExtraInfo
 ){
     companion object {
         // 조인은 한 단계만 매핑한다 (_depth > 0 이면 조인을 읽지 않는다). 서로 참조하는 조인에서 끝없이 이어지거나
         // 지연 로딩으로 쿼리가 계속 나가는 것을 막는다.
         fun from(_e: Board, _depth: Int = 0): BoardResponse {
+            val _user = if (_depth == 0) _e.user?.let { UserResponse.from(it, _depth + 1) } else null
             return BoardResponse(
                 id = _e.id,
                 title = _e.title,
                 content = _e.content,
                 img = _e.img,
-                user = _e.user,
+                user = _e.userId,
                 createddate = _e.createddate.format(DATE_TIME_FORMATTER),
 
-                extra =  emptyMap()
+                extra = BoardExtraInfo(
+                    user = _user,)
+                
             )
         }
     }

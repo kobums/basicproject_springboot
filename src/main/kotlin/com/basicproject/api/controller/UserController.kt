@@ -38,6 +38,12 @@ class UserController(
         // batch 요청 한 번에 받는 최대 행 수 (넘으면 400, Go / Rust 백엔드와 같다).
         const val MAX_BATCH = 1000
 
+        // 관리자 level (model.json adminLevel). 관리자는 모든 회원 정보를 읽는다.
+        const val ADMIN_LEVEL = 3L
+
+        // 문자열 필터의 부분 일치 패턴: ! % _ 를 ! 로 escape 하고 양쪽에 % 를 붙인다 (like ... escape '!', Go / Rust 와 같다).
+        private fun likePattern(_v: String): String = "%" + _v.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+
         // 정렬에 쓸 수 있는 이름(소문자: 프로퍼티 / 요청 필드 / 컬럼 이름) → 엔티티 프로퍼티
         private val SORT_FIELDS = mapOf(
             "id" to "id",
@@ -65,6 +71,27 @@ class UserController(
         return true
     }
 
+    // 관리자인지 (SessionProvider.currentValue("level") >= ADMIN_LEVEL).
+    private fun isAdmin(): Boolean {
+        val _level = _sessionProvider.currentValue("level") ?: return false
+        return _level >= ADMIN_LEVEL
+    }
+
+    // 회원 정보 읽기는 본인 행만 (관리자는 모든 행) (목록 / 개수 / 검색 조건).
+    private fun selfSpec(): Specification<User> {
+        return Specification { _root, _, _cb ->
+            val _uid = _sessionProvider.currentUserId()
+            if (isAdmin()) _cb.conjunction() else if (_uid == null) _cb.disjunction() else _cb.equal(_root.get<Any>("id"), _uid)
+        }
+    }
+
+    // 읽을 수 있는 회원 행인지 (본인, 관리자).
+    private fun canReadRow(_entity: User): Boolean {
+        if (isAdmin()) return true
+        val _uid = _sessionProvider.currentUserId() ?: return false
+        return _entity.id == _uid
+    }
+
     // 회원 정보는 본인만 수정/삭제할 수 있다 (Go 와 같다).
     private fun isSelf(_entity: User): Boolean {
         val _uid = _sessionProvider.currentUserId() ?: return false
@@ -90,14 +117,14 @@ class UserController(
     ): Specification<User> {
         val _filter = Specification<User> { _root, _, _cb ->
             val _predicates = mutableListOf<Predicate>()
-            if (email != null) _predicates.add(_cb.equal(_root.get<Any>("email"), email))
-            if (name != null) _predicates.add(_cb.equal(_root.get<Any>("name"), name))
+            if (email != null) _predicates.add(_cb.like(_root.get<String>("email"), likePattern(email), '!'))
+            if (name != null) _predicates.add(_cb.like(_root.get<String>("name"), likePattern(name), '!'))
             if (level != null) _predicates.add(_cb.equal(_root.get<Any>("level"), level))
             if (createddate_start != null) _predicates.add(_cb.greaterThanOrEqualTo(_root.get<java.time.LocalDateTime>("createddate"), createddate_start))
             if (createddate_end != null) _predicates.add(_cb.lessThanOrEqualTo(_root.get<java.time.LocalDateTime>("createddate"), createddate_end))
             _cb.and(*_predicates.toTypedArray())
         }
-        return _filter
+        return _filter.and(selfSpec())
     }
 
     // 정렬: "createddate desc, name" 또는 "createddate,desc". 모르는 이름/방향이면 null (400).
@@ -142,7 +169,7 @@ class UserController(
         @RequestParam("startcreateddate", required = false) createddate_start: String?,
         @RequestParam("endcreateddate", required = false) createddate_end: String?,
     ): ResponseEntity<Map<String, Any>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         if ((_page ?: 0) < 0 || (_pagesize ?: 0) < 0) return ResponseEntity.badRequest().build()
         val _order = parseSort(_sort ?: _orderby) ?: return ResponseEntity.badRequest().build()
         val _paged = (_page ?: 0) > 0 && (_pagesize ?: 0) > 0
@@ -177,8 +204,8 @@ class UserController(
 
     @GetMapping("/{id}")
     fun getUser(@PathVariable("id") _id: Long): ResponseEntity<UserResponse> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
-        val _res = _service.findById(_id)
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        val _res = _service.findById(_id)?.takeIf { canReadRow(it) }
         return if (_res != null) {
             ResponseEntity.ok(toResponse(_res))
         } else {
@@ -187,43 +214,43 @@ class UserController(
     }
 
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 본인 행 조건).
     @GetMapping("/search/email")
     fun getUserByEmail(@RequestParam("email") _value: String): ResponseEntity<List<UserResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
         val _spec = Specification<User> { _root, _, _cb -> _cb.equal(_root.get<Any>("email"), _v) }
-        val _res = _service.findAll(_spec)
+        val _res = _service.findAll(_spec.and(selfSpec()))
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 본인 행 조건).
     @GetMapping("/search/name")
     fun getUserByName(@RequestParam("name") _value: String): ResponseEntity<List<UserResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
         val _spec = Specification<User> { _root, _, _cb -> _cb.equal(_root.get<Any>("name"), _v) }
-        val _res = _service.findAll(_spec)
+        val _res = _service.findAll(_spec.and(selfSpec()))
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 본인 행 조건).
     @GetMapping("/search/level")
     fun getUserByLevel(@RequestParam("level") _value: Int): ResponseEntity<List<UserResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = _value
         val _spec = Specification<User> { _root, _, _cb -> _cb.equal(_root.get<Any>("level"), _v) }
-        val _res = _service.findAll(_spec)
+        val _res = _service.findAll(_spec.and(selfSpec()))
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
-    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건).
+    // 컬럼 값이 같은 행 목록 (Specification 의 = 조건, 본인 행 조건).
     @GetMapping("/search/createddate")
     fun getUserByCreateddate(@RequestParam("createddate") _value: String): ResponseEntity<List<UserResponse>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _v = DateParams.dateTimeParam(_value, "createddate") ?: return ResponseEntity.badRequest().build()
         val _spec = Specification<User> { _root, _, _cb -> _cb.equal(_root.get<Any>("createddate"), _v) }
-        val _res = _service.findAll(_spec)
+        val _res = _service.findAll(_spec.and(selfSpec()))
         return ResponseEntity.ok(_res.map { toResponse(it) })
     }
 
@@ -236,7 +263,7 @@ class UserController(
         @RequestParam("startcreateddate", required = false) createddate_start: String?,
         @RequestParam("endcreateddate", required = false) createddate_end: String?,
     ): ResponseEntity<Map<String, Long>> {
-        if (!isLoggedIn()) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
+        if (_sessionProvider.currentUserId() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         val _spec = buildSpec(
             email,
             name,

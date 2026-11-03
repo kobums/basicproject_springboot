@@ -12,9 +12,11 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
-//   POST /api/auth/signup  회원가입 (level 1) 후 토큰 발급
-//   POST /api/auth/login   로그인 후 토큰 발급
-//   GET  /api/auth/me      현재 토큰의 사용자 (로그인 필요)
+// gomachine README "인증 API 계약" (Go / Spring / Rust 템플릿 공통):
+//   POST /api/auth/signup  {email, password, name} → 201 {token, tokenType, expiresInMs, user} | 400 검증 | 409 이미 있는 email
+//   POST /api/auth/login   {email, password}       → 200 {token, tokenType, expiresInMs, user} | 401
+//   GET  /api/auth/me      Authorization: Bearer   → 200 user | 401
+//   user = {id, email, name, level, createddate}, 에러 = {status, message, fieldErrors?}
 @RestController
 @RequestMapping("/api/auth")
 class AuthController(private val authService: AuthService) {
