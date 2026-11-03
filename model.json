@@ -1,0 +1,31 @@
+{
+  "buildtool": "1.4",
+  "server": "127.0.0.1",
+  "database": "project",
+  "user": "project",
+  "password": "",
+  "auth": "jwt",
+  "adminLevel": "3",
+  "languages": {
+    "go": false,
+    "spring": true,
+    "rust": false,
+    "react": false,
+    "vue": false
+  },
+  "kotlinModelFilePath": "src/main/kotlin/com/basicproject/api",
+  "kotlinPackage": "com.basicproject.api",
+  "springBoot": 4,
+  "table": [
+    {
+      "name": "user",
+      "protect": ["level"]
+    },
+    {
+      "name": "board",
+      "session": [{ "key": "id", "column": "user" }],
+      "join": [{ "name": "user", "column": "user" }],
+      "read": "login"
+    }
+  ]
+}

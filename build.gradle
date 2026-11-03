@@ -1,6 +1,9 @@
 plugins {
-	id 'java'
-	id 'org.springframework.boot' version '3.5.3'
+	// Kotlin 버전은 Spring Boot 가 관리하는 kotlin.version (Boot 4.1.2 → 2.3.21) 과 맞춘다.
+	id 'org.jetbrains.kotlin.jvm' version '2.3.21'
+	id 'org.jetbrains.kotlin.plugin.spring' version '2.3.21'
+	id 'org.jetbrains.kotlin.plugin.jpa' version '2.3.21'
+	id 'org.springframework.boot' version '4.1.2'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -18,24 +21,82 @@ repositories {
 }
 
 dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
-	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
-	// JWT (JJWT 0.12.x). impl/jackson 은 런타임에만 필요.
-	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
-	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
-	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
-	compileOnly 'org.projectlombok:lombok'
+	// gomachine 이 만드는 Kotlin 코드 (Jackson 3 = tools.jackson)
+	implementation 'tools.jackson.module:jackson-module-kotlin'
+	implementation 'org.jetbrains.kotlin:kotlin-reflect'
+	// JWT (HS256). impl / jackson 은 런타임에만 필요하다.
+	implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
 	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
-	annotationProcessor 'org.projectlombok:lombok'
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testImplementation 'org.springframework.security:spring-security-test'
-	testCompileOnly 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	// 테스트는 DB 없이 H2 (MariaDB 모드) 에 db/schema.sql 을 올려서 돈다.
+	testRuntimeOnly 'com.h2database:h2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+kotlin {
+	compilerOptions {
+		freeCompilerArgs.addAll '-Xjsr305=strict', '-Xannotation-default-target=param-property'
+	}
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// .env (docker compose 와 같은 파일) 의 KEY=VALUE 를 읽는다. 값이 빈 줄은 건너뛴다 (application.yml 기본값을 쓴다).
+def dotenv = { ->
+	def env = [:]
+	def f = file('.env')
+	if (f.exists()) {
+		f.eachLine { line ->
+			def s = line.trim()
+			if (s && !s.startsWith('#') && s.contains('=')) {
+				def i = s.indexOf('=')
+				def v = s.substring(i + 1).trim()
+				if (v.length() >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+					v = v.substring(1, v.length() - 1)
+				}
+				if (v) {
+					env[s.substring(0, i).trim()] = v
+				}
+			}
+		}
+	}
+	env
+}
+
+// ./gradlew bootRun 은 .env 를 환경변수로 넣는다 (이미 설정된 환경변수가 우선).
+tasks.named('bootRun') {
+	doFirst {
+		dotenv().each { k, v ->
+			if (System.getenv(k) == null) {
+				environment k, v
+			}
+		}
+	}
+}
+
+// ./gradlew gen : gomachine(buildtool-model) 으로 model.json 의 테이블 코드를 다시 만든다.
+// buildtool-model 이 PATH 에 있어야 하고, DB(docker compose up -d db) 가 떠 있어야 한다. .env 의 DB_HOST/DB_USER/DB_PASSWORD 를 넘긴다.
+tasks.register('gen', Exec) {
+	group = 'build'
+	description = 'gomachine(buildtool-model) 으로 생성 코드를 다시 만든다'
+	workingDir = projectDir
+	commandLine 'buildtool-model', '.'
+	doFirst {
+		dotenv().each { k, v ->
+			if (System.getenv(k) == null) {
+				environment k, v
+			}
+		}
+	}
 }

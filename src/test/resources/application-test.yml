@@ -1,0 +1,17 @@
+# 테스트: DB 없이 H2 (MariaDB 모드) 에 db/schema.sql 을 올린다.
+spring:
+  datasource:
+    url: jdbc:h2:mem:basicproject;MODE=MariaDB;DATABASE_TO_LOWER=TRUE;NON_KEYWORDS=USER,VALUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  sql:
+    init:
+      mode: always
+      schema-locations: file:db/schema.sql
+
+app:
+  upload-dir: build/test-uploads
+  jwt:
+    # 테스트 전용 키 (64 바이트 이상: HS512 토큰 거부 테스트용)
+    secret: test-only-jwt-secret-not-for-production-0123456789-abcdefghijklmnopqrstuvwxyz

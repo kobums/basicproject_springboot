@@ -43,9 +43,9 @@ uploads/
 application-local.yml
 application-local.yaml
 application-secret.yml
-src/main/resources/application-local.yml
 .env
 .env.*
+!.env.example
 
 ### Logs ###
 *.log
