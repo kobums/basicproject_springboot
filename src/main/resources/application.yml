@@ -1,35 +1,37 @@
+# 설정은 환경변수가 먼저다 (.env.example 참고). ./gradlew bootRun 은 .env 를 읽어 환경변수로 넣는다.
 server:
-  port: 8081 # 8080 은 다른 프로젝트 서버가 사용 중이라 8081 사용
+  port: ${PORT:8081}
 
 spring:
   application:
     name: basicproject_springboot
-  # 비밀정보는 환경변수 또는 git에 올라가지 않는 application-local.yml 로 주입한다.
-  config:
-    import: optional:application-local.yml
   datasource:
-    url: ${DB_URL:jdbc:mariadb://localhost:3306/project}
-    username: ${DB_USERNAME:project}
+    # DB_URL 이 있으면 그것을, 없으면 DB_HOST / DB_PORT / DB_NAME 으로 만든다.
+    url: ${DB_URL:jdbc:mariadb://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:${MARIADB_DATABASE:project}}}
+    username: ${DB_USER:project}
     password: ${DB_PASSWORD:}
-    driver-class-name: org.mariadb.jdbc.Driver
   servlet:
     multipart:
       max-file-size: 5MB
       max-request-size: 5MB
   jpa:
-    hibernate:
-      ddl-auto: none            # 공유 DB: 스키마는 수동 관리. JPA가 테이블을 생성/변경/삭제하지 못하게 막음
-    show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
     open-in-view: false
+    show-sql: false
+    hibernate:
+      # 스키마는 db/schema.sql 로 관리한다. JPA 가 테이블을 만들거나 바꾸지 않는다.
+      ddl-auto: none
+      naming:
+        # @Column(name = "...") 를 그대로 쓴다 (gomachine 생성 엔티티, 대문자 컬럼 이름 포함).
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
 
-# 업로드 파일 저장 디렉터리 (basicproject_springboot/uploads). /uploads/** 로 정적 서빙.
 app:
-  upload-dir: uploads
+  # 업로드 파일 저장 디렉터리. /uploads/** 로 정적 서빙한다.
+  upload-dir: ${UPLOAD_DIR:uploads}
   jwt:
-    # HS256 서명용 비밀키(최소 32바이트). 기본값 없음 — 환경변수 JWT_SECRET 또는 application-local.yml 로 반드시 주입한다.
+    # HS256 서명 키 (32 바이트 이상). 기본값 없음: 없거나 짧으면 기동이 실패한다. Go / Rust 백엔드와 같은 값을 쓰면 토큰을 같이 쓴다.
     secret: ${JWT_SECRET:}
-    # 토큰 만료 시간 (밀리초). 기본 1일.
-    expiration-ms: 86400000
+    # 토큰 유효 시간 (밀리초). 기본 1일. 토큰의 iat / exp 는 초 단위다.
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors:
+    # 쉼표로 구분한 origin 패턴. 운영에서는 실제 도메인으로 바꾼다.
+    allowed-origins: ${CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
